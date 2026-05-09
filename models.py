@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey,BigInteger
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, Float,BigInteger
+from sqlalchemy.sql import func
 from database import Base
 
 class JobPost(Base):
@@ -57,10 +58,6 @@ class Course(Base):
     cluster = Column(Integer, nullable=True)
     clusterable_text = Column(Text, nullable=True)
 
-from sqlalchemy import Column, Integer, Float, Text, Boolean, DateTime
-from sqlalchemy.sql import func
-from database import Base
-
 class ClusterRecord(Base):
     """
     Shadow model for the hr_app_cluster_records table.
@@ -85,6 +82,9 @@ class ClusterRecord(Base):
     word2vec_window_size = Column(Text)
     word2vec_word_min_count_percentage = Column(Float)
     from_date = Column(Text)
+    w2v_name = Column(String(500), nullable=True)
+    kmeans_name = Column(String(500), nullable=True)
+    experiment_id = Column(String(500), nullable=True)
     
     # The 'Applied' flag tells the UI which model is currently 'Live'
     applied = Column(Boolean, default=False)

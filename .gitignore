@@ -3,3 +3,11 @@ venv/
 __pycache__/
 .env
 .vscode/
+*.joblib
+*.model
+# Ignore all model artifacts in the storage folder
+services/models_storage/**/*
+
+# BUT do not ignore the base folder or its contents
+!services/models_storage/base/
+!services/models_storage/base/**
