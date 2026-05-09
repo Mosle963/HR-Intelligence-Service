@@ -36,7 +36,8 @@ class ModelManager:
             self.kmeans_model = joblib.load(kmeans_path)
             
             self.is_ready = True
-            print(f"Successfully loaded models from Experiment: {applied_record.experiment_id}")
+            ex_id = str(applied_record.experiment_id) if applied_record else "BASE"
+            print(f"Successfully loaded models from Experiment: {ex_id}")
             return True
             
         except Exception as e:

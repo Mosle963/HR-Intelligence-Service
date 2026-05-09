@@ -1,5 +1,4 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import getattr
 
 class PostgresTextStreamer:
     def __init__(self, db: Session, model_class, text_column_name: str, start_date=None):

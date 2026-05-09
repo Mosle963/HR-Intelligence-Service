@@ -1,6 +1,6 @@
 from pathlib import Path
 import gensim
-from helpers import name_model
+from .helpers import name_model
 from sklearn.cluster import KMeans
 from sklearn.metrics import calinski_harabasz_score
 from sklearn.metrics import silhouette_score
