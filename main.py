@@ -4,6 +4,15 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime
+import os
+from fastapi import Security, HTTPException, status, Request
+from fastapi.security.api_key import APIKeyHeader
+from starlette.middleware.base import BaseHTTPMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+
 
 # Local imports
 from database import engine, SessionLocal
@@ -12,8 +21,37 @@ from services.predictor import ml_state
 from services.training_service import run_clustering_experiment,sync_all_records
 from services.helpers import generate_experiment_id
 
+
+
 # Create tables if they don't exist (Shadowing Django)
 models.Base.metadata.create_all(bind=engine)
+
+
+
+# 1. Define the Security Scheme
+API_KEY_NAME = "X-API-KEY"
+api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
+
+# 2. Authentication Logic
+async def get_api_key(api_key_header: str = Security(api_key_header)):
+    if api_key_header == os.getenv("API_SECRET_KEY"):
+        return api_key_header
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Could not validate credentials"
+    )
+
+# 3. Middleware for IP Whitelisting (Optional but powerful)
+class IPWhitelistMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        allowed_ips = os.getenv("ALLOWED_HOSTS", "127.0.0.1").split(",")
+        client_ip = request.client.host
+        if client_ip not in allowed_ips:
+            return HTTPException(status_code=403, detail="IP not allowed")
+        return await call_next(request)
+
+
+
 
 # ---------------------------------------------------------
 # 1. Lifespan (Startup/Shutdown Events)
@@ -31,8 +69,22 @@ async def lifespan(app: FastAPI):
     # Shutdown: Clean up resources if needed
     print("Shutting down The Brain...")
 
-app = FastAPI(title="HR Clustering API", lifespan=lifespan)
+app = FastAPI(title="HR Clustering API", lifespan=lifespan,dependencies=[Depends(get_api_key)])
+app.add_middleware(IPWhitelistMiddleware)
+limiter = Limiter(key_func=get_remote_address)
 
+app.state.limiter = limiter
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+@app.middleware("http")
+async def limit_payload_size(request: Request, call_next):
+    max_size = 1024 * 500  # 500KB limit
+    size = request.headers.get("content-length")
+    if size and int(size) > max_size:
+        raise HTTPException(status_code=413, detail="Payload too large")
+    
+    return await call_next(request)
 # ---------------------------------------------------------
 # 2. Database Dependency
 # ---------------------------------------------------------
@@ -84,6 +136,7 @@ def predict_cluster(request: PredictRequest):
 
 
 @app.post("/train")
+@limiter.limit("1/minute")
 def trigger_training(request: TrainRequest, background_tasks: BackgroundTasks):
     """
     Starts the heavy ML training in the background.
@@ -110,6 +163,7 @@ def trigger_training(request: TrainRequest, background_tasks: BackgroundTasks):
 
 
 @app.post("/reload-models")
+@limiter.limit("1/minute")
 def reload_applied_models(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
     1. Loads new models into RAM.
@@ -129,6 +183,7 @@ def reload_applied_models(background_tasks: BackgroundTasks, db: Session = Depen
     
 
 @app.post("/process-and-predict", response_model=ProcessResponse)
+@limiter.limit("5/minute")
 def process_and_predict(request: PredictRequest):
     """
     Combined endpoint to minimize network trips.
@@ -149,6 +204,7 @@ def process_and_predict(request: PredictRequest):
     return ProcessResponse(clusterable_text=clean_text, cluster_id=cluster_id)
 
 @app.get("/training-status")
+@limiter.limit("30/minute")
 def get_training_status():
     from services.training_service import is_training_busy
     return {
@@ -158,6 +214,7 @@ def get_training_status():
 
 
 @app.get("/syncing-status")
+@limiter.limit("30/minute")
 def get_syncing_status():
     from services.training_service import is_syncing_busy
     return {
