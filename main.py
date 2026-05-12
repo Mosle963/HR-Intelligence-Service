@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime
 import os
-from fastapi import Security, HTTPException, status, Request
+from fastapi import Security, HTTPException, status, Request, Depends
 from fastapi.security.api_key import APIKeyHeader
 from starlette.middleware.base import BaseHTTPMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -15,11 +15,11 @@ from slowapi.errors import RateLimitExceeded
 
 
 # Local imports
-from database import engine, SessionLocal
+from database import engine, SessionLocal,get_db
 import models
 from services.predictor import ml_state
 from services.training_service import run_clustering_experiment,sync_all_records
-from services.helpers import generate_experiment_id
+from services.helpers import generate_experiment_id,get_storage_info, cleanup_old_models
 
 
 
@@ -221,3 +221,32 @@ def get_syncing_status():
         "is_busy": is_syncing_busy,
         "message": "Syncing is ongoing..." if is_syncing_busy else "Idle"
     }
+
+@app.get("/storage-info")
+def storage_info():
+    """
+    Returns the current disk space used by the ML models.
+    """
+    info = get_storage_info()
+    return {
+        "status": "success",
+        "data": info
+    }
+
+@app.post("/cleanup-models")
+def trigger_cleanup(keep_count: int = 5, db: Session = Depends(get_db)):
+    """
+    Frees up disk space by deleting unapplied, older model files.
+    """
+    try:
+        result = cleanup_old_models(db, keep_count)
+        return {
+            "status": "success",
+            "message": "Cleanup complete.",
+            "details": result
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Cleanup failed: {str(e)}"
+        }
